@@ -1,0 +1,23 @@
+# Secrets — never commit
+secrets/
+*.env
+*.env.*
+!.env.example
+
+# Ansible runtime
+*.retry
+.ansible/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local-only state
+backups/
+logs/

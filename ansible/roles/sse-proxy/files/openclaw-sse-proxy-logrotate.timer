@@ -1,0 +1,11 @@
+[Unit]
+Description=Rotate openclaw-sse-proxy healthcheck log weekly
+
+[Timer]
+OnCalendar=weekly
+AccuracySec=1h
+Persistent=true
+Unit=openclaw-sse-proxy-logrotate.service
+
+[Install]
+WantedBy=timers.target

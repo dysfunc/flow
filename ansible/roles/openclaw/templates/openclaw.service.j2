@@ -1,0 +1,16 @@
+[Unit]
+Description=OpenClaw Gateway
+After=network.target tailscaled.service
+Wants=tailscaled.service
+
+[Service]
+Type=simple
+User={{ service_user }}
+WorkingDirectory={{ home_dir }}
+ExecStart=/usr/bin/node /usr/lib/node_modules/openclaw/dist/index.js gateway --port {{ openclaw_gateway_port }}
+Restart=always
+RestartSec=5
+EnvironmentFile={{ openclaw_env_file }}
+
+[Install]
+WantedBy=multi-user.target

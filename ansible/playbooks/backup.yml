@@ -1,0 +1,59 @@
+---
+# Tar up workspace + config to ~/backups/. Use before risky changes.
+# Output: ~/backups/flow-state-YYYYMMDD-HHMMSS.tar.gz
+
+- name: Backup Flow state
+  hosts: vps
+  gather_facts: true
+
+  vars:
+    backup_name: "flow-state-{{ ansible_date_time.iso8601_basic_short }}.tar.gz"
+    backup_path: "{{ backups_dir }}/{{ backup_name }}"
+
+  tasks:
+    - name: Ensure backup dir exists
+      ansible.builtin.file:
+        path: "{{ backups_dir }}"
+        state: directory
+        owner: "{{ service_user }}"
+        group: "{{ service_group }}"
+        mode: "0755"
+
+    - name: Create backup tarball
+      ansible.builtin.command: >
+        tar
+          --exclude='.openclaw/logs'
+          --exclude='.openclaw/media'
+          --exclude='.openclaw/delivery-queue'
+          --exclude='.openclaw/session-delivery-queue'
+          --exclude='.openclaw/workspace/reports/data'
+          -czf {{ backup_path }}
+          .openclaw/openclaw.json
+          .openclaw/workspace/MEMORY.md
+          .openclaw/workspace/AGENTS.md
+          .openclaw/workspace/SOUL.md
+          .openclaw/workspace/USER.md
+          .openclaw/workspace/IDENTITY.md
+          .openclaw/workspace/TOOLS.md
+          .openclaw/workspace/HEARTBEAT.md
+          .openclaw/workspace/patches
+          .openclaw/workspace/skills
+          .openclaw/sse-proxy
+          searxng-data/settings.yml
+      args:
+        chdir: "{{ home_dir }}"
+      register: tar_result
+      changed_when: tar_result.rc == 0
+
+    - name: Report backup location
+      ansible.builtin.debug:
+        msg: "Backup written: {{ backup_path }}"
+
+    - name: Show backup size
+      ansible.builtin.stat:
+        path: "{{ backup_path }}"
+      register: bk_stat
+
+    - name: Size
+      ansible.builtin.debug:
+        msg: "Size: {{ (bk_stat.stat.size / 1024) | int }} KB"

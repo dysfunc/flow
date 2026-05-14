@@ -1,0 +1,49 @@
+---
+# Update OpenClaw to the latest npm version (or pinned version from group_vars).
+# Restarts the service and verifies it comes back healthy.
+
+- name: Update OpenClaw
+  hosts: vps
+  gather_facts: false
+
+  tasks:
+    - name: Snapshot current openclaw.json before update
+      ansible.builtin.copy:
+        src: "{{ openclaw_config_dir }}/openclaw.json"
+        dest: "{{ openclaw_config_dir }}/openclaw.json.pre-update-{{ ansible_date_time.iso8601_basic_short | default(lookup('pipe', 'date -u +%Y%m%dT%H%M%SZ')) }}"
+        remote_src: true
+        owner: "{{ service_user }}"
+        group: "{{ service_group }}"
+        mode: "0600"
+
+    - name: Install / update OpenClaw via npm
+      community.general.npm:
+        name: "{{ openclaw_npm_package }}"
+        version: "{{ openclaw_target_version | default(openclaw_pin_version) }}"
+        global: true
+      become: true
+      # Override with: `ansible-playbook ... -e openclaw_target_version=2026.6.0`
+
+    - name: Restart openclaw.service
+      ansible.builtin.systemd:
+        name: openclaw.service
+        state: restarted
+        daemon_reload: false
+      become: true
+
+    - name: Wait for gateway to bind to port {{ openclaw_gateway_port }}
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ openclaw_gateway_port }}"
+        timeout: 30
+
+    - name: Check OpenClaw version
+      ansible.builtin.command: openclaw --version
+      register: openclaw_ver
+      changed_when: false
+
+    - name: Show version
+      ansible.builtin.debug:
+        msg: "OpenClaw running: {{ openclaw_ver.stdout }}"
+
+- ansible.builtin.import_playbook: verify.yml

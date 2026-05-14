@@ -1,0 +1,17 @@
+[Unit]
+Description=openclaw-sse-proxy healthcheck (self-healing)
+After=openclaw-sse-proxy.service tailscaled.service
+Wants=openclaw-sse-proxy.service
+
+[Service]
+Type=oneshot
+User=debian
+Group=debian
+# Wrap healthcheck so we always log a one-line heartbeat with timestamp + result,
+# even when the script itself runs silently (--quiet suppresses healthy output).
+# The wrapper avoids systemd's %-specifier and $-evaluation quirks in ExecStart.
+ExecStart=/home/debian/.openclaw/sse-proxy/healthcheck-wrapper.sh
+StandardOutput=append:/home/debian/.openclaw/sse-proxy/healthcheck.log
+StandardError=append:/home/debian/.openclaw/sse-proxy/healthcheck.log
+# Don't fail the unit if healthcheck reports unhealthy — we log it and move on
+SuccessExitStatus=0 1

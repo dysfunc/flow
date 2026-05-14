@@ -1,0 +1,14 @@
+[Unit]
+Description=Run openclaw-sse-proxy healthcheck every 15 minutes
+Requires=openclaw-sse-proxy-healthcheck.service
+
+[Timer]
+# First fire 2 minutes after boot, then every 15 minutes
+OnBootSec=2min
+OnUnitActiveSec=15min
+AccuracySec=30s
+Persistent=true
+Unit=openclaw-sse-proxy-healthcheck.service
+
+[Install]
+WantedBy=timers.target

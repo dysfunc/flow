@@ -1,0 +1,39 @@
+---
+# Install Docker from Debian's repositories and add service user to docker group.
+# Idempotent.
+
+- name: Install docker.io
+  ansible.builtin.apt:
+    name: docker.io
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  become: true
+
+- name: Enable and start docker service
+  ansible.builtin.systemd:
+    name: docker
+    state: started
+    enabled: true
+  become: true
+
+- name: Add service user to docker group
+  ansible.builtin.user:
+    name: "{{ service_user }}"
+    groups: docker
+    append: true
+  become: true
+  register: docker_group_added
+
+- name: Note that re-login may be needed for new shells
+  ansible.builtin.debug:
+    msg: |
+      docker group membership added for {{ service_user }}.
+      New shells will pick it up; existing shells need `newgrp docker` or relogin.
+  when: docker_group_added.changed
+
+- name: Install Python docker SDK (required by community.docker modules)
+  ansible.builtin.apt:
+    name: python3-docker
+    state: present
+  become: true

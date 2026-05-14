@@ -1,0 +1,25 @@
+---
+# Reinstall the SSE keepalive proxy from versioned files in roles/sse-proxy/files/.
+# Use after editing proxy-core.js or server.js in the role's files/ directory.
+
+- name: Update SSE keepalive proxy
+  hosts: vps
+  gather_facts: false
+
+  tasks:
+    - name: Re-run sse-proxy role
+      ansible.builtin.include_role:
+        name: sse-proxy
+
+    - name: Restart sse-proxy service
+      ansible.builtin.systemd:
+        name: openclaw-sse-proxy.service
+        state: restarted
+        daemon_reload: true
+      become: true
+
+    - name: Wait for proxy to bind to :{{ sse_proxy_listen_port }}
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ sse_proxy_listen_port }}"
+        timeout: 15

@@ -1,0 +1,33 @@
+---
+# Workspace files (MEMORY.md, AGENTS.md, SOUL.md, etc.) are Flow's behavioral state
+# and live at ~/.openclaw/workspace/. They're personal to this deployment and should
+# NOT be checked into a public repo without sanitization.
+#
+# This role is intentionally minimal — it does NOT restore workspace files automatically.
+# Instead it asserts the directory exists and reminds the operator to restore from backup.
+#
+# Workflow:
+#   1. After bootstrap, restore the workspace files manually from a known-good tarball:
+#        tar -xzf ~/backups/flow-state-YYYYMMDD-HHMMSS.tar.gz -C ~/
+#   2. Re-run `make verify` to confirm the workspace is in place.
+
+- name: Ensure workspace dir exists
+  ansible.builtin.file:
+    path: "{{ openclaw_workspace_dir }}"
+    state: directory
+    owner: "{{ service_user }}"
+    group: "{{ service_group }}"
+    mode: "0755"
+
+- name: Check if MEMORY.md is present
+  ansible.builtin.stat:
+    path: "{{ openclaw_workspace_dir }}/MEMORY.md"
+  register: memory_stat
+
+- name: Warn if workspace appears empty (post-bootstrap state)
+  ansible.builtin.debug:
+    msg: |
+      Workspace appears empty. Restore from your latest backup:
+        tar -xzf {{ backups_dir }}/<latest>.tar.gz -C {{ home_dir }}/
+      Then re-run `make verify`.
+  when: not memory_stat.stat.exists

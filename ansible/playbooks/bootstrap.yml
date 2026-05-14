@@ -1,0 +1,72 @@
+---
+# Bootstrap a fresh VPS to a running OpenClaw + SearXNG + SSE proxy stack.
+# Idempotent — safe to re-run after partial failures.
+#
+# Pre-requisites (not managed here — do these once by hand):
+#   - Debian 13+ VPS provisioned
+#   - User `debian` exists with sudo
+#   - SSH key auth configured
+#   - Tailscale installed and `tailscale up` completed (for Funnel routing)
+#
+# Post-conditions:
+#   - OpenClaw gateway running on :8443
+#   - SSE keepalive proxy on :8444
+#   - SearXNG container on 127.0.0.1:8888
+#   - All as systemd services with auto-restart
+#
+# Secrets:
+#   - /etc/openclaw.env must exist (owner root, mode 0640) BEFORE running this.
+#     The playbook will fail loudly if it's missing. See docs/secrets.md.
+
+- name: Bootstrap Flow VPS
+  hosts: vps
+  become: false
+  gather_facts: true
+
+  pre_tasks:
+    - name: Verify /etc/openclaw.env exists (secrets are not managed by ansible)
+      ansible.builtin.stat:
+        path: "{{ openclaw_env_file }}"
+      register: env_file_stat
+      become: true
+
+    - name: Fail loudly if openclaw.env is missing
+      ansible.builtin.fail:
+        msg: |
+          {{ openclaw_env_file }} is missing. This file holds secrets (gateway password,
+          Slack tokens, Anthropic API key, etc.) and is NOT managed by ansible.
+          See ops/docs/secrets.md for what it should contain.
+      when: not env_file_stat.stat.exists
+
+    - name: Ensure backup dir exists
+      ansible.builtin.file:
+        path: "{{ backups_dir }}"
+        state: directory
+        owner: "{{ service_user }}"
+        group: "{{ service_group }}"
+        mode: "0755"
+      become: true
+
+  roles:
+    - role: docker
+      tags: [docker]
+
+    - role: searxng
+      tags: [searxng]
+
+    - role: openclaw
+      tags: [openclaw]
+
+    - role: sse-proxy
+      tags: [sse_proxy]
+
+    - role: workspace
+      tags: [workspace]
+
+  post_tasks:
+    - name: Suggest verification
+      ansible.builtin.debug:
+        msg: "Bootstrap complete. Run 'make verify' to health-check the full stack."
+
+# Run verify.yml as a separate play afterward.
+- ansible.builtin.import_playbook: verify.yml

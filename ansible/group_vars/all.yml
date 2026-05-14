@@ -1,0 +1,44 @@
+---
+# Non-secret configuration shared across all hosts.
+# Secrets live in /etc/openclaw.env on the VPS and are NEVER stored here.
+
+# === User & paths ===
+service_user: debian
+service_group: debian
+home_dir: /home/debian
+openclaw_config_dir: /home/debian/.openclaw
+openclaw_workspace_dir: /home/debian/.openclaw/workspace
+ops_dir: /home/debian/ops
+backups_dir: /home/debian/backups
+
+# === Node / OpenClaw ===
+node_major_version: "22"
+openclaw_npm_package: openclaw
+# Pinned to the version currently running on the VPS. Bump explicitly after
+# verifying a new release is good. The update-openclaw playbook accepts an
+# override: `make update-openclaw OPENCLAW_VERSION=2026.6.0`.
+openclaw_pin_version: "2026.5.5"
+openclaw_gateway_port: 8443
+openclaw_env_file: /etc/openclaw.env  # owner=root, mode=0640; contains secrets
+
+# === SearXNG ===
+searxng_image: searxng/searxng:latest
+searxng_container_name: searxng
+searxng_data_dir: /home/debian/searxng-data
+searxng_listen_host: 127.0.0.1
+searxng_listen_port: 8888
+searxng_internal_port: 8080
+# settings.yml customizations applied after container first-start
+searxng_enable_json_format: true
+
+# === SSE keepalive proxy ===
+sse_proxy_dir: /home/debian/.openclaw/sse-proxy
+sse_proxy_listen_host: 127.0.0.1
+sse_proxy_listen_port: 8444
+sse_proxy_upstream_host: 127.0.0.1
+sse_proxy_upstream_port: 8443
+sse_proxy_keepalive_ms: 15000
+
+# === Tailscale Funnel ===
+# Funnel is configured once manually; ansible only verifies, doesn't manage.
+tailscale_funnel_target_port: "{{ sse_proxy_listen_port }}"

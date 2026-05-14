@@ -1,0 +1,25 @@
+---
+# Pull the latest SearXNG image and recreate the container.
+# Settings.yml customizations are reapplied via the role.
+
+- name: Rebuild SearXNG container
+  hosts: vps
+  gather_facts: false
+
+  tasks:
+    - name: Pull latest SearXNG image
+      community.docker.docker_image:
+        name: "{{ searxng_image }}"
+        source: pull
+        force_source: true
+
+    - name: Stop and remove existing container (state will be re-asserted by role)
+      community.docker.docker_container:
+        name: "{{ searxng_container_name }}"
+        state: absent
+
+    - name: Re-run SearXNG role (recreates container, reapplies settings patch)
+      ansible.builtin.include_role:
+        name: searxng
+
+- ansible.builtin.import_playbook: verify.yml

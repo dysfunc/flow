@@ -1,0 +1,10 @@
+all:
+  hosts:
+    vps:
+      ansible_host: localhost
+      ansible_connection: local
+      ansible_user: debian
+      # Hostname identifier — used for backups and logging, not network resolution.
+      vps_id: vps-6c51e6bb
+  # Future: add a staging host here for parallel rebuilds.
+  # vars: shared across hosts (defined in group_vars/all.yml).

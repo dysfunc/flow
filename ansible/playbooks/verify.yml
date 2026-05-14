@@ -1,0 +1,56 @@
+---
+# Health-check the entire stack. Read-only — no side effects.
+# Fails loudly if anything's broken.
+
+- name: Verify Flow stack health
+  hosts: vps
+  gather_facts: false
+
+  tasks:
+    - name: Check openclaw.service is active
+      ansible.builtin.command: systemctl is-active openclaw.service
+      register: openclaw_active
+      changed_when: false
+      failed_when: openclaw_active.stdout != "active"
+
+    - name: Check openclaw-sse-proxy.service is active
+      ansible.builtin.command: systemctl is-active openclaw-sse-proxy.service
+      register: sse_active
+      changed_when: false
+      failed_when: sse_active.stdout != "active"
+
+    - name: Check OpenClaw gateway responds on :{{ openclaw_gateway_port }}
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ openclaw_gateway_port }}"
+        timeout: 5
+
+    - name: Check SSE proxy responds on :{{ sse_proxy_listen_port }}
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ sse_proxy_listen_port }}"
+        timeout: 5
+
+    - name: Check SearXNG container is running
+      community.docker.docker_container_info:
+        name: "{{ searxng_container_name }}"
+      register: searxng_info
+      failed_when: not searxng_info.exists or searxng_info.container.State.Status != "running"
+
+    - name: Check SearXNG responds with a real search
+      ansible.builtin.uri:
+        url: "http://{{ searxng_listen_host }}:{{ searxng_listen_port }}/search?q=health-check&format=json"
+        return_content: true
+        status_code: 200
+      register: searxng_search
+      failed_when: searxng_search.json.results | default([]) | length == 0
+
+    - name: All checks passed
+      ansible.builtin.debug:
+        msg: |
+          ✓ openclaw.service           active
+          ✓ openclaw-sse-proxy.service active
+          ✓ gateway :{{ openclaw_gateway_port }}              responding
+          ✓ sse-proxy :{{ sse_proxy_listen_port }}            responding
+          ✓ searxng container          running
+          ✓ searxng web_search         returned {{ searxng_search.json.results | length }} results

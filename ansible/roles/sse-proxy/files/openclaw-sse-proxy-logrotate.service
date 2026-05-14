@@ -1,0 +1,9 @@
+[Unit]
+Description=Rotate openclaw-sse-proxy healthcheck log
+ConditionPathExists=/home/debian/.openclaw/sse-proxy/healthcheck.log
+
+[Service]
+Type=oneshot
+User=debian
+Group=debian
+ExecStart=/bin/sh -c 'tail -n 1000 /home/debian/.openclaw/sse-proxy/healthcheck.log > /home/debian/.openclaw/sse-proxy/healthcheck.log.tmp && mv /home/debian/.openclaw/sse-proxy/healthcheck.log.tmp /home/debian/.openclaw/sse-proxy/healthcheck.log'

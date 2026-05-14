@@ -1,0 +1,79 @@
+---
+# Install the SSE keepalive reverse proxy.
+# Versioned source files live under roles/sse-proxy/files/.
+# Background: works around the OpenClaw gateway's lack of SSE heartbeat under
+# reverse-proxied / long-lived connections. See MEMORY.md patches 2026-05-13.
+
+- name: Ensure SSE proxy dir exists
+  ansible.builtin.file:
+    path: "{{ sse_proxy_dir }}"
+    state: directory
+    owner: "{{ service_user }}"
+    group: "{{ service_group }}"
+    mode: "0755"
+
+- name: Sync SSE proxy source files
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "{{ sse_proxy_dir }}/{{ item }}"
+    owner: "{{ service_user }}"
+    group: "{{ service_group }}"
+    mode: "0644"
+  loop:
+    - server.js
+    - proxy-core.js
+    - README.md
+  notify: Restart sse-proxy
+
+- name: Sync SSE proxy scripts (executable)
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "{{ sse_proxy_dir }}/{{ item }}"
+    owner: "{{ service_user }}"
+    group: "{{ service_group }}"
+    mode: "0755"
+  loop:
+    - install.sh
+    - healthcheck.sh
+    - healthcheck-wrapper.sh
+
+- name: Install main systemd unit
+  ansible.builtin.copy:
+    src: openclaw-sse-proxy.service
+    dest: /etc/systemd/system/openclaw-sse-proxy.service
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  notify:
+    - Reload systemd
+    - Restart sse-proxy
+
+- name: Install healthcheck systemd unit
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: /etc/systemd/system/{{ item }}
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  loop:
+    - openclaw-sse-proxy-healthcheck.service
+    - openclaw-sse-proxy-healthcheck.timer
+    - openclaw-sse-proxy-logrotate.service
+    - openclaw-sse-proxy-logrotate.timer
+  notify: Reload systemd
+
+- name: Flush handlers
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start sse-proxy services
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: started
+    enabled: true
+  become: true
+  loop:
+    - openclaw-sse-proxy.service
+    - openclaw-sse-proxy-healthcheck.timer
+    - openclaw-sse-proxy-logrotate.timer

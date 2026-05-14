@@ -1,0 +1,76 @@
+---
+# Run SearXNG container, bound to loopback only.
+# Generates a fresh secret key on first run (idempotent — secret persists in container env).
+# Reapplies settings.yml customizations (JSON format).
+
+- name: Ensure SearXNG data dir exists
+  ansible.builtin.file:
+    path: "{{ searxng_data_dir }}"
+    state: directory
+    owner: "{{ service_user }}"
+    group: "{{ service_group }}"
+    mode: "0755"
+
+- name: Check if settings.yml already has a secret stored
+  ansible.builtin.stat:
+    path: "{{ ops_dir }}/secrets/searxng-secret"
+  register: searxng_secret_file
+
+- name: Generate SearXNG secret key (first run only)
+  ansible.builtin.shell: |
+    set -e
+    mkdir -p {{ ops_dir }}/secrets
+    chmod 700 {{ ops_dir }}/secrets
+    openssl rand -hex 32 > {{ ops_dir }}/secrets/searxng-secret
+    chmod 600 {{ ops_dir }}/secrets/searxng-secret
+  args:
+    creates: "{{ ops_dir }}/secrets/searxng-secret"
+  # The secret file lives in ops/secrets/ (gitignored) so re-creates can reuse it.
+
+- name: Read SearXNG secret
+  ansible.builtin.slurp:
+    src: "{{ ops_dir }}/secrets/searxng-secret"
+  register: searxng_secret_raw
+
+- name: Run SearXNG container
+  community.docker.docker_container:
+    name: "{{ searxng_container_name }}"
+    image: "{{ searxng_image }}"
+    state: started
+    restart_policy: unless-stopped
+    ports:
+      - "{{ searxng_listen_host }}:{{ searxng_listen_port }}:{{ searxng_internal_port }}"
+    volumes:
+      - "{{ searxng_data_dir }}:/etc/searxng"
+    env:
+      SEARXNG_BASE_URL: "http://localhost:{{ searxng_listen_port }}/"
+      SEARXNG_SECRET: "{{ searxng_secret_raw.content | b64decode | trim }}"
+
+- name: Wait for SearXNG to write initial settings.yml
+  ansible.builtin.wait_for:
+    path: "{{ searxng_data_dir }}/settings.yml"
+    timeout: 30
+
+- name: Wait an extra second for first-run settings write to complete
+  ansible.builtin.pause:
+    seconds: 2
+
+- name: Check if JSON format is already enabled
+  ansible.builtin.shell: |
+    grep -A 3 '^  formats:' {{ searxng_data_dir }}/settings.yml | grep -q 'json'
+  register: json_check
+  changed_when: false
+  failed_when: false
+  become: true
+
+- name: Enable JSON output format in settings.yml
+  ansible.builtin.command: >
+    docker exec {{ searxng_container_name }} sh -c
+    "sed -i 's|^    - html$|    - html\n    - json|' /etc/searxng/settings.yml"
+  when:
+    - searxng_enable_json_format
+    - json_check.rc != 0
+  notify: Restart SearXNG container
+
+- name: Flush handlers
+  ansible.builtin.meta: flush_handlers
