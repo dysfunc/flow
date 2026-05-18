@@ -13,11 +13,17 @@
       changed_when: false
       failed_when: openclaw_active.stdout != "active"
 
-    - name: Check openclaw-sse-proxy.service is active
-      ansible.builtin.command: systemctl is-active openclaw-sse-proxy.service
-      register: sse_active
+    - name: Check openclaw-gateway-proxy.service is active (live primary on :8444)
+      ansible.builtin.command: systemctl is-active openclaw-gateway-proxy.service
+      register: gateway_proxy_active
       changed_when: false
-      failed_when: sse_active.stdout != "active"
+      failed_when: gateway_proxy_active.stdout != "active"
+
+    - name: Check openclaw-sse-proxy.service is MASKED (fallback only — must not race gateway-proxy)
+      ansible.builtin.command: systemctl is-enabled openclaw-sse-proxy.service
+      register: sse_enabled_state
+      changed_when: false
+      failed_when: sse_enabled_state.stdout != "masked"
 
     - name: Check OpenClaw gateway responds on :{{ openclaw_gateway_port }}
       ansible.builtin.wait_for:
@@ -25,7 +31,7 @@
         port: "{{ openclaw_gateway_port }}"
         timeout: 5
 
-    - name: Check SSE proxy responds on :{{ sse_proxy_listen_port }}
+    - name: Check gateway-proxy responds on :{{ sse_proxy_listen_port }}
       ansible.builtin.wait_for:
         host: 127.0.0.1
         port: "{{ sse_proxy_listen_port }}"
@@ -67,11 +73,12 @@
     - name: All checks passed
       ansible.builtin.debug:
         msg: |
-          ✓ openclaw.service           active
-          ✓ openclaw-sse-proxy.service active
-          ✓ sender-block patch         present in dist (patch 2026-05-16)
-          ✓ anthropic timeoutSeconds   = 600 (patch 2026-05-15)
-          ✓ gateway :{{ openclaw_gateway_port }}              responding
-          ✓ sse-proxy :{{ sse_proxy_listen_port }}            responding
-          ✓ searxng container          running
-          ✓ searxng web_search         returned {{ searxng_search.json.results | length }} results
+          ✓ openclaw.service               active
+          ✓ openclaw-gateway-proxy.service active   (live primary)
+          ✓ openclaw-sse-proxy.service     masked   (fallback, not running)
+          ✓ sender-block patch             present in dist (patch 2026-05-16)
+          ✓ anthropic timeoutSeconds       = 600 (patch 2026-05-15)
+          ✓ gateway :{{ openclaw_gateway_port }}                  responding
+          ✓ gateway-proxy :{{ sse_proxy_listen_port }}            responding
+          ✓ searxng container              running
+          ✓ searxng web_search             returned {{ searxng_search.json.results | length }} results

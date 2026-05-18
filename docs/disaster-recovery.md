@@ -47,7 +47,9 @@ This will:
 - Install Docker
 - Pull and run SearXNG
 - Install Node.js 22 + OpenClaw
-- Install systemd units for openclaw + sse-proxy
+- Install dist patches (signature-checked, root-owned)
+- Install systemd units for openclaw + gateway-proxy (the :8444 live primary)
+- Install sse-proxy units in **masked** state (legacy fallback only)
 - Start everything
 - Run verification
 
@@ -124,12 +126,33 @@ grep -l openclaw-patch:sender-block-v1 /usr/lib/node_modules/openclaw/dist/*.js
 # Should print exactly one filename.
 ```
 
-### SSE proxy crashed
+### gateway-proxy crashed (the live :8444 listener)
+```bash
+sudo journalctl -u openclaw-gateway-proxy -n 50
+sudo systemctl restart openclaw-gateway-proxy
+# If still broken:
+make update-gateway-proxy
+```
+
+If gateway-proxy is wedged and Funnel users can't reach Flow at all, you
+can flip to the legacy sse-proxy fallback while you debug. sse-proxy
+binds the same port (:8444) but lacks identity-stamping — webchat sessions
+will come through with no identity claim. Acceptable as a recovery path,
+not a steady state.
+
+```bash
+make unmask-sse-proxy-fallback   # stops gateway-proxy, unmasks + starts sse-proxy
+# ... fix gateway-proxy ...
+make remask-sse-proxy-fallback   # stops sse-proxy, re-masks, restarts gateway-proxy
+```
+
+### sse-proxy crashed (only relevant if you've unmasked it as fallback)
 ```bash
 sudo journalctl -u openclaw-sse-proxy -n 50
 sudo systemctl restart openclaw-sse-proxy
-# If still broken:
-make update-sse-proxy
+# If still broken and you've already unmasked it manually:
+make update-sse-proxy   # reinstalls files, then re-masks per role policy
+# After update-sse-proxy you'll need unmask-sse-proxy-fallback again.
 ```
 
 ### Funnel not reachable from outside

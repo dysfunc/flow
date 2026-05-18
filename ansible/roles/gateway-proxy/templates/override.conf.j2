@@ -1,0 +1,12 @@
+# {{ ansible_managed }}
+# Drop-in for openclaw-gateway-proxy.service.
+#
+# Phase 1.5 — stamp mode with multi-tenant domain allow-list.
+# - mode=stamp: validate + normalize headers, forward claim. Tolerates missing
+#   headers (TUI/acp-cli paths still work). Domain mismatch still 403s
+#   (intentional fail-closed, even in stamp mode — see identity.js).
+# - allowed domains: list comes from gateway_proxy_allowed_email_domains.
+# - enforce-paths: irrelevant in stamp mode but left at default for Phase 3.
+[Service]
+Environment=GATEWAY_PROXY_ACTING_USER_MODE={{ gateway_proxy_acting_user_mode }}
+Environment=GATEWAY_PROXY_ALLOWED_EMAIL_DOMAINS={{ gateway_proxy_allowed_email_domains | join(',') }}

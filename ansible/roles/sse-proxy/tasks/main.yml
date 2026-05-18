@@ -1,8 +1,17 @@
 ---
-# Install the SSE keepalive reverse proxy.
-# Versioned source files live under roles/sse-proxy/files/.
-# Background: works around the OpenClaw gateway's lack of SSE heartbeat under
-# reverse-proxied / long-lived connections. See MEMORY.md patches 2026-05-13.
+# SSE keepalive reverse proxy.
+#
+# STATUS: SUPERSEDED FALLBACK (2026-05-16).
+# The OpenClaw gateway-proxy (roles/gateway-proxy) absorbed both the
+# SSE-keepalive role and added identity-stamping. sse-proxy is kept
+# installed-on-disk + units present but MASKED so it cannot race
+# gateway-proxy on port 8444. It is a recovery path: if gateway-proxy
+# breaks, `sudo systemctl unmask openclaw-sse-proxy.service && sudo
+# systemctl start openclaw-sse-proxy.service` brings Funnel back up
+# while gateway-proxy is debugged.
+#
+# See MEMORY.md "Patches Registry" → 2026-05-13 sse-streaming-gateway-fix
+# (status: Superseded by gateway-proxy).
 
 - name: Ensure SSE proxy dir exists
   ansible.builtin.file:
@@ -23,7 +32,6 @@
     - server.js
     - proxy-core.js
     - README.md
-  notify: Restart sse-proxy
 
 - name: Sync SSE proxy scripts (executable)
   ansible.builtin.copy:
@@ -37,19 +45,30 @@
     - healthcheck.sh
     - healthcheck-wrapper.sh
 
-- name: Install main systemd unit
-  ansible.builtin.copy:
-    src: openclaw-sse-proxy.service
-    dest: /etc/systemd/system/openclaw-sse-proxy.service
-    owner: root
-    group: root
-    mode: "0644"
-  become: true
-  notify:
-    - Reload systemd
-    - Restart sse-proxy
+# IMPORTANT: the units may currently be symlinks to /dev/null (masked).
+# We must unmask BEFORE attempting to install/update files, otherwise the
+# copy task either fails or writes through the symlink to nowhere.
+- name: Detect existing mask state
+  ansible.builtin.stat:
+    path: /etc/systemd/system/openclaw-sse-proxy.service
+  register: sse_proxy_main_unit_stat
 
-- name: Install healthcheck systemd unit
+- name: Temporarily unmask sse-proxy units so file installs work
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    masked: false
+  become: true
+  loop:
+    - openclaw-sse-proxy.service
+    - openclaw-sse-proxy-healthcheck.service
+    - openclaw-sse-proxy-healthcheck.timer
+    - openclaw-sse-proxy-logrotate.service
+    - openclaw-sse-proxy-logrotate.timer
+  when:
+    - sse_proxy_main_unit_stat.stat.exists | default(false)
+    - sse_proxy_main_unit_stat.stat.islnk | default(false)
+
+- name: Install systemd units (root-owned)
   ansible.builtin.copy:
     src: "{{ item }}"
     dest: /etc/systemd/system/{{ item }}
@@ -58,22 +77,62 @@
     mode: "0644"
   become: true
   loop:
+    - openclaw-sse-proxy.service
     - openclaw-sse-proxy-healthcheck.service
     - openclaw-sse-proxy-healthcheck.timer
     - openclaw-sse-proxy-logrotate.service
     - openclaw-sse-proxy-logrotate.timer
-  notify: Reload systemd
 
-- name: Flush handlers
-  ansible.builtin.meta: flush_handlers
+- name: Reload systemd after unit install
+  ansible.builtin.systemd:
+    daemon_reload: true
+  become: true
 
-- name: Enable and start sse-proxy services
+# Mask everything. State: stopped + disabled + masked. The previous
+# unmask step is a no-op on the first ever install (no symlinks exist
+# yet) and converges to "stopped + masked" either way.
+- name: Stop sse-proxy services (idempotent — fine if already stopped)
   ansible.builtin.systemd:
     name: "{{ item }}"
-    state: started
-    enabled: true
+    state: stopped
   become: true
   loop:
     - openclaw-sse-proxy.service
     - openclaw-sse-proxy-healthcheck.timer
     - openclaw-sse-proxy-logrotate.timer
+  failed_when: false
+
+- name: Disable sse-proxy services
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: false
+  become: true
+  loop:
+    - openclaw-sse-proxy.service
+    - openclaw-sse-proxy-healthcheck.timer
+    - openclaw-sse-proxy-logrotate.timer
+  failed_when: false
+
+# Mask via direct symlink to /dev/null. `systemd.masked: true` won't work
+# here because it can't replace an existing regular unit file — systemd
+# refuses to clobber. We just installed the real files in the step above,
+# so the file-then-symlink dance has to be explicit.
+- name: Mask sse-proxy units (fallback mode — unmask manually only for recovery)
+  ansible.builtin.file:
+    src: /dev/null
+    dest: "/etc/systemd/system/{{ item }}"
+    state: link
+    force: true
+    owner: root
+    group: root
+  become: true
+  loop:
+    - openclaw-sse-proxy.service
+    - openclaw-sse-proxy-healthcheck.service
+    - openclaw-sse-proxy-healthcheck.timer
+    - openclaw-sse-proxy-logrotate.service
+    - openclaw-sse-proxy-logrotate.timer
+  notify: Reload systemd after mask
+
+- name: Flush handlers so daemon-reload sees the new masks
+  ansible.builtin.meta: flush_handlers

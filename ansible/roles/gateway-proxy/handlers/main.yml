@@ -1,0 +1,11 @@
+---
+- name: Reload systemd (gateway-proxy)
+  ansible.builtin.systemd:
+    daemon_reload: true
+  become: true
+
+- name: Restart gateway-proxy
+  ansible.builtin.systemd:
+    name: openclaw-gateway-proxy.service
+    state: restarted
+  become: true

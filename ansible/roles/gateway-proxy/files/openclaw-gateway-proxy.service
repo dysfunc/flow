@@ -1,0 +1,54 @@
+[Unit]
+Description=OpenClaw gateway reverse proxy (SSE keepalive + identity normalization)
+After=network-online.target
+Wants=network-online.target
+StartLimitBurst=10
+StartLimitIntervalSec=60
+
+[Service]
+Type=simple
+User=debian
+Group=debian
+WorkingDirectory=/home/debian/.openclaw/gateway-proxy
+# Re-apply OpenClaw dist/ patches before starting. Idempotent + content-anchored
+# (no-op if already applied). Ensures any service restart — boot, manual,
+# post-update — lands with patches in place before traffic flows.
+# `+` prefix bypasses User=/Group= and runs this one step as root, so we can
+# write to /usr/lib/node_modules/openclaw/dist/ (NoNewPrivileges still applies
+# to the main service process). `=-` means failure doesn't block service start
+# (healthcheck timer self-heals within 15 min as backstop).
+ExecStartPre=+/home/debian/.openclaw/openclaw-patches/apply.sh
+ExecStart=/usr/bin/env node /home/debian/.openclaw/gateway-proxy/server.js
+Restart=on-failure
+RestartSec=2
+
+# Default env. Override with `systemctl edit openclaw-gateway-proxy` to set
+# domain allow-list, identity mode, or enforce-paths.
+Environment=GATEWAY_PROXY_LISTEN_HOST=127.0.0.1
+Environment=GATEWAY_PROXY_LISTEN_PORT=8444
+Environment=GATEWAY_PROXY_UPSTREAM_HOST=127.0.0.1
+Environment=GATEWAY_PROXY_UPSTREAM_PORT=8443
+Environment=GATEWAY_PROXY_KEEPALIVE_MS=15000
+Environment=GATEWAY_PROXY_ACTING_USER_MODE=off
+Environment=GATEWAY_PROXY_ALLOWED_EMAIL_DOMAINS=
+Environment=GATEWAY_PROXY_ENFORCE_PATHS=/chat
+
+# Hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/home/debian/.openclaw/gateway-proxy
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=openclaw-gateway-proxy
+
+[Install]
+WantedBy=multi-user.target

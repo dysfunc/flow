@@ -31,13 +31,21 @@ searxng_internal_port: 8080
 # settings.yml customizations applied after container first-start
 searxng_enable_json_format: true
 
-# === SSE keepalive proxy ===
+# === SSE keepalive proxy (LEGACY — installed-masked as fallback) ===
 sse_proxy_dir: /home/debian/.openclaw/sse-proxy
 sse_proxy_listen_host: 127.0.0.1
 sse_proxy_listen_port: 8444
 sse_proxy_upstream_host: 127.0.0.1
 sse_proxy_upstream_port: 8443
 sse_proxy_keepalive_ms: 15000
+
+# === Gateway-proxy (LIVE primary on :8444 — identity stamping + SSE keepalive) ===
+# Role defaults live in roles/gateway-proxy/defaults/main.yml; overrides here.
+# gateway_proxy_acting_user_mode: stamp
+# gateway_proxy_allowed_email_domains:
+#   - webflow.com
+#   - colinks.io
+#   - opensense.com
 
 # === Tailscale Funnel ===
 # Funnel is configured once manually; ansible only verifies, doesn't manage.

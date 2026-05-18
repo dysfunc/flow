@@ -1,0 +1,104 @@
+---
+# Install the OpenClaw gateway-proxy: identity-stamping + SSE keepalive
+# reverse proxy that sits between Tailscale Funnel (port 8444) and the
+# OpenClaw gateway (127.0.0.1:8443).
+#
+# Background: superseded the standalone sse-proxy on 2026-05-16 by adding
+# identity-stamping for the relay-UI surface (Phase 1.5). The legacy
+# sse-proxy stays installed-but-masked as a fallback (see roles/sse-proxy).
+# See MEMORY.md "Patches Registry" → 2026-05-13 sse-streaming-gateway-fix
+# (status: Superseded).
+
+- name: Ensure gateway-proxy dir exists
+  ansible.builtin.file:
+    path: "{{ gateway_proxy_dir }}"
+    state: directory
+    owner: "{{ gateway_proxy_user }}"
+    group: "{{ gateway_proxy_group }}"
+    mode: "0755"
+
+- name: Ensure gateway-proxy state dir exists (runtime artifact, not version-controlled)
+  ansible.builtin.file:
+    path: "{{ gateway_proxy_state_dir }}"
+    state: directory
+    owner: "{{ gateway_proxy_user }}"
+    group: "{{ gateway_proxy_group }}"
+    mode: "0775"
+
+- name: Sync gateway-proxy source files (server, proxy core, identity)
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "{{ gateway_proxy_dir }}/{{ item }}"
+    owner: "{{ gateway_proxy_user }}"
+    group: "{{ gateway_proxy_group }}"
+    mode: "0644"
+  loop: "{{ gateway_proxy_source_files }}"
+  notify: Restart gateway-proxy
+
+- name: Sync gateway-proxy scripts (executable)
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "{{ gateway_proxy_dir }}/{{ item }}"
+    owner: "{{ gateway_proxy_user }}"
+    group: "{{ gateway_proxy_group }}"
+    mode: "0755"
+  loop: "{{ gateway_proxy_script_files }}"
+
+- name: Install systemd units (root-owned)
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "{{ gateway_proxy_systemd_dir }}/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  loop: "{{ gateway_proxy_systemd_units }}"
+  notify:
+    - Reload systemd (gateway-proxy)
+    - Restart gateway-proxy
+
+- name: Ensure drop-in directory for the main unit exists
+  ansible.builtin.file:
+    path: "{{ gateway_proxy_dropin_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: Render Phase 1.5 drop-in (mode + allowed-domains)
+  ansible.builtin.template:
+    src: override.conf.j2
+    dest: "{{ gateway_proxy_dropin_dir }}/override.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  notify:
+    - Reload systemd (gateway-proxy)
+    - Restart gateway-proxy
+
+- name: Flush handlers so daemon-reload + restart happen before enable/start
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start gateway-proxy main service
+  ansible.builtin.systemd:
+    name: openclaw-gateway-proxy.service
+    state: started
+    enabled: true
+  become: true
+
+- name: Enable and start gateway-proxy timers (healthcheck + logrotate)
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: started
+    enabled: true
+  become: true
+  loop: "{{ gateway_proxy_enable_timers }}"
+
+- name: Verify gateway-proxy is listening on 8444
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: 8444
+    timeout: 15
+    state: started

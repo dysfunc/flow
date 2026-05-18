@@ -38,6 +38,7 @@
           .openclaw/workspace/HEARTBEAT.md
           .openclaw/workspace/skills
           .openclaw/openclaw-patches
+          .openclaw/gateway-proxy
           .openclaw/sse-proxy
           searxng-data/settings.yml
       args:

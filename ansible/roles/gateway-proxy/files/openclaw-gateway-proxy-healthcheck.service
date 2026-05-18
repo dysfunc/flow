@@ -1,0 +1,13 @@
+[Unit]
+Description=openclaw-gateway-proxy healthcheck (self-healing)
+After=openclaw-gateway-proxy.service tailscaled.service
+Wants=openclaw-gateway-proxy.service
+
+[Service]
+Type=oneshot
+User=debian
+Group=debian
+ExecStart=/home/debian/.openclaw/gateway-proxy/healthcheck-wrapper.sh
+StandardOutput=append:/home/debian/.openclaw/gateway-proxy/healthcheck.log
+StandardError=append:/home/debian/.openclaw/gateway-proxy/healthcheck.log
+SuccessExitStatus=0 1

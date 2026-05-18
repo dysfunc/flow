@@ -1,0 +1,43 @@
+---
+# Where the runtime gateway-proxy tree lives.
+gateway_proxy_dir: /home/debian/.openclaw/gateway-proxy
+gateway_proxy_state_dir: /home/debian/.openclaw/gateway-proxy/state
+gateway_proxy_log_dir: /home/debian/.openclaw/gateway-proxy
+
+# systemd unit destinations.
+gateway_proxy_systemd_dir: /etc/systemd/system
+gateway_proxy_dropin_dir: /etc/systemd/system/openclaw-gateway-proxy.service.d
+
+# Runtime user/group.
+gateway_proxy_user: debian
+gateway_proxy_group: debian
+
+# Phase 1.5 environment.
+# stamp: validate + normalize incoming X-OpenClaw-Acting-User headers and
+# forward to OpenClaw gateway. Tolerates missing headers (TUI/acp-cli still
+# work). Domain mismatch always 403s. See identity.js.
+gateway_proxy_acting_user_mode: stamp
+
+# Allowed email domains (claim domain must match one of these or it's 403).
+gateway_proxy_allowed_email_domains:
+  - webflow.com
+  - colinks.io
+  - opensense.com
+
+# Service files we ship. Listed explicitly so adding/removing is a code change.
+gateway_proxy_source_files:
+  - server.js
+  - proxy-core.js
+  - identity.js
+gateway_proxy_script_files:
+  - healthcheck.sh
+  - healthcheck-wrapper.sh
+gateway_proxy_systemd_units:
+  - openclaw-gateway-proxy.service
+  - openclaw-gateway-proxy-healthcheck.service
+  - openclaw-gateway-proxy-healthcheck.timer
+  - openclaw-gateway-proxy-logrotate.service
+  - openclaw-gateway-proxy-logrotate.timer
+gateway_proxy_enable_timers:
+  - openclaw-gateway-proxy-healthcheck.timer
+  - openclaw-gateway-proxy-logrotate.timer

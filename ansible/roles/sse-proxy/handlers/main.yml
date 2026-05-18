@@ -9,3 +9,10 @@
     name: openclaw-sse-proxy.service
     state: restarted
   become: true
+
+# Used after the mask step — separate from the generic Reload handler so
+# they can both queue independently in one role run.
+- name: Reload systemd after mask
+  ansible.builtin.systemd:
+    daemon_reload: true
+  become: true

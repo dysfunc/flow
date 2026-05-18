@@ -1,0 +1,9 @@
+[Unit]
+Description=Rotate openclaw-gateway-proxy healthcheck log
+ConditionPathExists=/home/debian/.openclaw/gateway-proxy/healthcheck.log
+
+[Service]
+Type=oneshot
+User=debian
+Group=debian
+ExecStart=/bin/sh -c 'tail -n 1000 /home/debian/.openclaw/gateway-proxy/healthcheck.log > /home/debian/.openclaw/gateway-proxy/healthcheck.log.tmp && mv /home/debian/.openclaw/gateway-proxy/healthcheck.log.tmp /home/debian/.openclaw/gateway-proxy/healthcheck.log'

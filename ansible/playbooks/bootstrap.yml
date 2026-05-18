@@ -10,7 +10,8 @@
 #
 # Post-conditions:
 #   - OpenClaw gateway running on :8443
-#   - SSE keepalive proxy on :8444
+#   - OpenClaw gateway-proxy on :8444 (identity stamping + SSE keepalive)
+#   - SSE-proxy (legacy) installed but masked — fallback only
 #   - SearXNG container on 127.0.0.1:8888
 #   - All as systemd services with auto-restart
 #
@@ -60,6 +61,15 @@
     - role: openclaw-patches
       tags: [openclaw, openclaw_patches]
 
+    # gateway-proxy is the live primary on :8444 (identity stamping +
+    # SSE keepalive). It MUST install before sse-proxy so the fallback
+    # masking step doesn't race on a fresh VPS.
+    - role: gateway-proxy
+      tags: [gateway_proxy]
+
+    # sse-proxy is the legacy fallback. Files installed, units masked.
+    # Unmask manually (`make unmask-sse-proxy-fallback`) only if
+    # gateway-proxy is broken and Funnel needs a quick recovery path.
     - role: sse-proxy
       tags: [sse_proxy]
 
