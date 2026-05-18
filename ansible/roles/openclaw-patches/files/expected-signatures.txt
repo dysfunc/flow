@@ -1,0 +1,13 @@
+# expected-signatures.txt — strings that MUST appear in the OpenClaw dist
+# tree after all patches are applied. Used by gateway-proxy healthcheck
+# (check 6) to detect silent reverts (typically caused by OpenClaw updates
+# overwriting our patches).
+#
+# Format: one signature per line. Lines starting with # or blank are ignored.
+# A signature is just a string that must appear at least once in any file
+# under /usr/lib/node_modules/openclaw/dist/.
+#
+# When you add a patch, add at least one stable, unique marker here.
+
+# openai-http-sender-block.patch.js marker
+openclaw-patch:sender-block-v1

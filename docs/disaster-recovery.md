@@ -100,6 +100,30 @@ make rebuild-searxng
 ```
 This pulls the latest image, recreates the container, and reapplies the JSON-format patch.
 
+### OpenClaw dist patch missing after update
+
+Symptoms: `make verify` fails on the `sender-block patch present in dist`
+check, or relay UI sessions stop receiving the 4-field `Sender (untrusted
+metadata)` block.
+
+Cause: An OpenClaw npm reinstall overwrote the patched file in
+`/usr/lib/node_modules/openclaw/dist/`. The `update-openclaw` playbook
+re-applies patches automatically; if you ran `npm i -g openclaw` by hand
+outside ansible, the patch was wiped without being re-applied.
+
+Fix:
+```bash
+ansible-playbook ansible/playbooks/bootstrap.yml --tags openclaw_patches
+# or, equivalently:
+sudo /home/debian/.openclaw/openclaw-patches/apply.sh
+```
+
+Verify:
+```bash
+grep -l openclaw-patch:sender-block-v1 /usr/lib/node_modules/openclaw/dist/*.js
+# Should print exactly one filename.
+```
+
 ### SSE proxy crashed
 ```bash
 sudo journalctl -u openclaw-sse-proxy -n 50

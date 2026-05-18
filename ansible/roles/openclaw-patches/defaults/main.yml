@@ -1,0 +1,20 @@
+---
+# Defaults for the openclaw-patches role.
+# Override in group_vars or via -e if needed.
+
+# Runtime location of patches (where apply.sh + .patch.js files get installed).
+# Root-owned, debian-readable. apply.sh runs as root via sudoers fragment.
+openclaw_patches_dir: /home/debian/.openclaw/openclaw-patches
+
+# OpenClaw dist tree the patches mutate. Mirrors the constant in apply.sh
+# (OPENCLAW_DIST_DIR env var); only override here if OpenClaw's install
+# layout ever changes.
+openclaw_dist_dir: /usr/lib/node_modules/openclaw/dist
+
+# Sudoers fragment path. Narrow scope: debian NOPASSWD only on apply.sh.
+openclaw_patches_sudoers_path: /etc/sudoers.d/openclaw-patches
+
+# List of .patch.js files to install. Add new patches here.
+# Each file must live under roles/openclaw-patches/files/.
+openclaw_patches_list:
+  - openai-http-sender-block.patch.js

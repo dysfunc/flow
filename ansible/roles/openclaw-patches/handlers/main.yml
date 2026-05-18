@@ -1,0 +1,6 @@
+---
+- name: Restart openclaw
+  ansible.builtin.systemd:
+    name: openclaw.service
+    state: restarted
+  become: true

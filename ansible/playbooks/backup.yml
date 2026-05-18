@@ -36,8 +36,8 @@
           .openclaw/workspace/IDENTITY.md
           .openclaw/workspace/TOOLS.md
           .openclaw/workspace/HEARTBEAT.md
-          .openclaw/workspace/patches
           .openclaw/workspace/skills
+          .openclaw/openclaw-patches
           .openclaw/sse-proxy
           searxng-data/settings.yml
       args:

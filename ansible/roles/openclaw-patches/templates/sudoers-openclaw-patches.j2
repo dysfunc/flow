@@ -1,0 +1,24 @@
+# /etc/sudoers.d/openclaw-patches
+# MANAGED BY ANSIBLE — do not edit by hand. Source:
+#   ops/ansible/roles/openclaw-patches/templates/sudoers-openclaw-patches.j2
+#
+# Allow the `debian` user to run apply.sh as root without a password prompt.
+# Scope is narrowly limited to that exact script. The script:
+#   - Reads {{ openclaw_patches_dir }}/*.patch.js (local patch sources, root-owned)
+#   - Writes to {{ openclaw_dist_dir }}/* (the patched files)
+# Each patch is content-anchored (matches by signature, not filename) and
+# idempotent (detects already-applied and exits clean).
+#
+# Used by:
+#   1. gateway-proxy healthcheck check 6 (self-heal on signature miss)
+#   2. gateway-proxy healthcheck check 7 (re-apply after openclaw npm update detected via mtime)
+#   3. openclaw-gateway-proxy.service ExecStartPre (re-apply before service starts)
+#
+# Security: the trust chain depends on
+#   {{ openclaw_patches_dir }}/  being root-owned 0755
+#   {{ openclaw_patches_dir }}/apply.sh  being root-owned 0755
+#   each *.patch.js being root-owned 0644
+# Healthcheck check 5.5 verifies the trust chain and alerts loudly if any
+# file in that tree becomes debian-writable. Do not relax these modes.
+
+{{ service_user }} ALL=(root) NOPASSWD: {{ openclaw_patches_dir }}/apply.sh

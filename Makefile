@@ -5,6 +5,10 @@ PLAYBOOK := cd $(ANSIBLE_DIR) && ansible-playbook -i inventory.yml
 help: ## show this help
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
+bootstrap-prereqs: ## install ansible + collections (run once on fresh VPS)
+	sudo apt update && sudo apt install -y ansible
+	cd $(ANSIBLE_DIR) && ansible-galaxy collection install -r requirements.yml
+
 plan: ## dry-run bootstrap (no changes)
 	$(PLAYBOOK) playbooks/bootstrap.yml --check --diff
 
@@ -29,4 +33,4 @@ verify: ## health-check the whole stack
 lint: ## ansible-lint over all playbooks
 	cd $(ANSIBLE_DIR) && ansible-lint playbooks/
 
-.PHONY: help plan bootstrap update-openclaw rebuild-searxng update-sse-proxy backup verify lint
+.PHONY: help bootstrap-prereqs plan bootstrap update-openclaw rebuild-searxng update-sse-proxy backup verify lint

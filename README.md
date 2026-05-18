@@ -52,7 +52,8 @@ Everything runs against `localhost` (this VPS), so no SSH config needed.
 
 ```bash
 # install ansible first time
-sudo apt install -y ansible
+# first-time only: install ansible + required collections
+make bootstrap-prereqs
 
 # preview what bootstrap would do (no changes)
 make plan

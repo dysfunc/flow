@@ -24,6 +24,12 @@
       become: true
       # Override with: `ansible-playbook ... -e openclaw_target_version=2026.6.0`
 
+    # An npm reinstall of openclaw wipes any local edits to dist/. Re-apply
+    # patches before restarting the service so the process boots patched.
+    - name: Re-apply OpenClaw dist patches after npm install
+      ansible.builtin.import_role:
+        name: openclaw-patches
+
     - name: Restart openclaw.service
       ansible.builtin.systemd:
         name: openclaw.service

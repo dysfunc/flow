@@ -57,6 +57,9 @@
     - role: openclaw
       tags: [openclaw]
 
+    - role: openclaw-patches
+      tags: [openclaw, openclaw_patches]
+
     - role: sse-proxy
       tags: [sse_proxy]
 

@@ -1,0 +1,110 @@
+---
+# Install root-owned patches into {{ openclaw_patches_dir }} and apply them
+# to the OpenClaw dist tree. Idempotent.
+#
+# Trust chain (load-bearing — see healthcheck check 5.5):
+#   - {{ openclaw_patches_dir }}/             root:root 0755
+#   - {{ openclaw_patches_dir }}/apply.sh     root:root 0755
+#   - {{ openclaw_patches_dir }}/*.patch.js   root:root 0644
+#   - {{ openclaw_patches_dir }}/*.txt/*.md   root:root 0644
+# Sudoers grants debian NOPASSWD only on apply.sh at the exact path above.
+# DO NOT relax ownership or modes; doing so opens a privesc path.
+
+- name: Ensure patches dir exists (root-owned)
+  ansible.builtin.file:
+    path: "{{ openclaw_patches_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: Install apply.sh (root-owned, executable)
+  ansible.builtin.copy:
+    src: apply.sh
+    dest: "{{ openclaw_patches_dir }}/apply.sh"
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+  register: apply_sh_copy
+
+- name: Install expected-signatures.txt
+  ansible.builtin.copy:
+    src: expected-signatures.txt
+    dest: "{{ openclaw_patches_dir }}/expected-signatures.txt"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  register: signatures_copy
+
+- name: Install README.md
+  ansible.builtin.copy:
+    src: README.md
+    dest: "{{ openclaw_patches_dir }}/README.md"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+
+- name: Install patch source files
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "{{ openclaw_patches_dir }}/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ openclaw_patches_list }}"
+  become: true
+  register: patches_copy
+
+- name: Install sudoers fragment for apply.sh
+  ansible.builtin.template:
+    src: sudoers-openclaw-patches.j2
+    dest: "{{ openclaw_patches_sudoers_path }}"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: "visudo -cf %s"
+  become: true
+
+- name: Re-apply patches against OpenClaw dist
+  # Always runs — apply.sh is idempotent and prints "already-applied" cheaply
+  # when nothing to do. We always invoke it (not just on copy-change) because
+  # an OpenClaw npm upgrade between ansible runs can silently wipe the dist
+  # patch even when nothing in this role changed.
+  ansible.builtin.command:
+    cmd: "{{ openclaw_patches_dir }}/apply.sh"
+  environment:
+    OPENCLAW_DIST_DIR: "{{ openclaw_dist_dir }}"
+  become: true
+  register: apply_result
+  changed_when: "'applied=0' not in apply_result.stdout"
+  failed_when: apply_result.rc != 0
+  notify: Restart openclaw
+
+- name: Verify expected signatures are present in dist
+  ansible.builtin.shell:
+    cmd: |
+      set -euo pipefail
+      missing=0
+      while IFS= read -r line; do
+        # skip blank lines and comments
+        [[ -z "$line" || "$line" =~ ^# ]] && continue
+        if ! grep -rqF -- "$line" "{{ openclaw_dist_dir }}"/; then
+          echo "MISSING: $line"
+          missing=$((missing + 1))
+        fi
+      done < "{{ openclaw_patches_dir }}/expected-signatures.txt"
+      if [ "$missing" -gt 0 ]; then
+        echo "ERROR: $missing expected patch signature(s) missing from dist" >&2
+        exit 1
+      fi
+      echo "OK: all expected signatures present in {{ openclaw_dist_dir }}"
+  args:
+    executable: /bin/bash
+  become: true
+  changed_when: false
+  register: sig_check
+  failed_when: sig_check.rc != 0

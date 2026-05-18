@@ -31,6 +31,25 @@
         port: "{{ sse_proxy_listen_port }}"
         timeout: 5
 
+    - name: Check sender-block patch is present in OpenClaw dist (patch 2026-05-16)
+      ansible.builtin.command:
+        cmd: grep -rqF -- 'openclaw-patch:sender-block-v1' {{ openclaw_dist_dir | default('/usr/lib/node_modules/openclaw/dist') }}/
+      register: sender_block_patch_check
+      changed_when: false
+      failed_when: sender_block_patch_check.rc != 0
+
+    - name: Check anthropic provider timeoutSeconds is 600 (patch 2026-05-15)
+      ansible.builtin.command:
+        cmd: >-
+          python3 -c
+          'import json,sys;
+          cfg=json.load(open("{{ openclaw_config_dir }}/openclaw.json"));
+          v=cfg.get("models",{}).get("providers",{}).get("anthropic",{}).get("timeoutSeconds");
+          sys.exit(0 if v==600 else 1)'
+      register: anthropic_timeout_check
+      changed_when: false
+      failed_when: anthropic_timeout_check.rc != 0
+
     - name: Check SearXNG container is running
       community.docker.docker_container_info:
         name: "{{ searxng_container_name }}"
@@ -50,6 +69,8 @@
         msg: |
           ✓ openclaw.service           active
           ✓ openclaw-sse-proxy.service active
+          ✓ sender-block patch         present in dist (patch 2026-05-16)
+          ✓ anthropic timeoutSeconds   = 600 (patch 2026-05-15)
           ✓ gateway :{{ openclaw_gateway_port }}              responding
           ✓ sse-proxy :{{ sse_proxy_listen_port }}            responding
           ✓ searxng container          running
