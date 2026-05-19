@@ -155,9 +155,24 @@ export function evaluateIdentity({ reqHeaders, reqPath, config }) {
   }
 
   // --- Modes: stamp / enforce ---------------------------------------------
-  const userId  = pickHeader(reqHeaders, HDR_USER_ID);
-  const email   = pickHeader(reqHeaders, HDR_EMAIL);
-  const display = pickHeader(reqHeaders, HDR_DISPLAY);
+  const userIdRaw = pickHeader(reqHeaders, HDR_USER_ID);
+  const email     = pickHeader(reqHeaders, HDR_EMAIL);
+  const display   = pickHeader(reqHeaders, HDR_DISPLAY);
+
+  // The relay may send a `:`-suffixed user id of the form
+  // "<uuid>:<conversation_id>" so a single header carries both pieces.
+  // Split the suffix off, validate the UUID prefix, and treat the suffix as
+  // an additional conversation_id source (only used if a dedicated
+  // x-openclaw-conversation-id header was not also supplied).
+  let userId = userIdRaw;
+  let conversationIdFromUserId = undefined;
+  if (typeof userIdRaw === "string" && userIdRaw.includes(":")) {
+    const idx = userIdRaw.indexOf(":");
+    userId = userIdRaw.slice(0, idx);
+    const suffix = userIdRaw.slice(idx + 1);
+    const sanitized = sanitizeConversationId(suffix);
+    conversationIdFromUserId = sanitized.value;
+  }
 
   const havePartial = Boolean(userId || email || display);
   const enforcedHere = mode === "enforce" && pathMatchesEnforce(reqPath, enforcedPaths);
@@ -242,6 +257,10 @@ export function evaluateIdentity({ reqHeaders, reqPath, config }) {
   }
 
   // Build the normalized claim.
+  // Prefer the dedicated x-openclaw-conversation-id header; fall back to
+  // a suffix split from the user-id header. Either way, the value is
+  // sanitized (length<=128, no control bytes) and forwarded verbatim.
+  const effectiveConversationId = conversationId || conversationIdFromUserId;
   const claim = {
     channel: "webchat",
     user_id: userId,
@@ -249,7 +268,7 @@ export function evaluateIdentity({ reqHeaders, reqPath, config }) {
     display: display || email.split("@")[0],
     issued_at: Date.now(),
   };
-  if (conversationId) claim.conversation_id = conversationId;
+  if (effectiveConversationId) claim.conversation_id = effectiveConversationId;
   const claimB64 = Buffer.from(JSON.stringify(claim), "utf8").toString("base64");
 
   // Mutate headers: strip the raw three, add the normalized claim + request id.
@@ -263,6 +282,10 @@ export function evaluateIdentity({ reqHeaders, reqPath, config }) {
   }
   out[HDR_CLAIM]  = claimB64;
   out[HDR_REQ_ID] = requestId;
+  // Always set the dedicated conv-id header from the effective value so the
+  // downstream ingress patch can capture it into AsyncLocalStorage, even when
+  // the relay only sent it via the user-id suffix.
+  if (effectiveConversationId) out[HDR_CONV_ID] = effectiveConversationId;
 
   return {
     action: "stamp",
@@ -273,7 +296,8 @@ export function evaluateIdentity({ reqHeaders, reqPath, config }) {
       claimPresent: true,
       userId,
       email,
-      conversationId,
+      conversationId: effectiveConversationId,
+      conversationIdSource: conversationId ? "header" : (conversationIdFromUserId ? "user-id-suffix" : undefined),
       conversationIdReason: convIdAuditReason,
     },
   };
