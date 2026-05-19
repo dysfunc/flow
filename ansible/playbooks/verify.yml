@@ -44,6 +44,20 @@
       changed_when: false
       failed_when: sender_block_patch_check.rc != 0
 
+    - name: Check conversation-id ingress patch is present in OpenClaw dist (patch 2026-05-19)
+      ansible.builtin.command:
+        cmd: grep -rqF -- 'openclaw-patch:conversation-id-ingress-v1' {{ openclaw_dist_dir | default('/usr/lib/node_modules/openclaw/dist') }}/
+      register: conv_id_ingress_patch_check
+      changed_when: false
+      failed_when: conv_id_ingress_patch_check.rc != 0
+
+    - name: Check conversation-id MCP egress patch is present in OpenClaw dist (patch 2026-05-19)
+      ansible.builtin.command:
+        cmd: grep -rqF -- 'openclaw-patch:conversation-id-mcp-egress-v1' {{ openclaw_dist_dir | default('/usr/lib/node_modules/openclaw/dist') }}/
+      register: conv_id_egress_patch_check
+      changed_when: false
+      failed_when: conv_id_egress_patch_check.rc != 0
+
     - name: Check anthropic provider timeoutSeconds is 600 (patch 2026-05-15)
       ansible.builtin.command:
         cmd: >-
@@ -77,6 +91,8 @@
           ✓ openclaw-gateway-proxy.service active   (live primary)
           ✓ openclaw-sse-proxy.service     masked   (fallback, not running)
           ✓ sender-block patch             present in dist (patch 2026-05-16)
+          ✓ conv-id ingress patch          present in dist (patch 2026-05-19)
+          ✓ conv-id MCP egress patch       present in dist (patch 2026-05-19)
           ✓ anthropic timeoutSeconds       = 600 (patch 2026-05-15)
           ✓ gateway :{{ openclaw_gateway_port }}                  responding
           ✓ gateway-proxy :{{ sse_proxy_listen_port }}            responding

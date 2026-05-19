@@ -36,6 +36,12 @@ const HDR_EMAIL    = "x-openclaw-acting-user-email";
 const HDR_DISPLAY  = "x-openclaw-acting-user-display";
 const HDR_CLAIM    = "x-openclaw-acting-user-claim";
 const HDR_REQ_ID   = "x-openclaw-proxy-request-id";
+const HDR_CONV_ID  = "x-openclaw-conversation-id";
+
+// Opaque string per relay contract (2026-05-19). Length cap + control-byte
+// filter are the only sanity guards. Verbatim pass-through otherwise.
+const CONV_ID_MAX_LEN = 128;
+const CONV_ID_CTRL_RE = /[\u0000-\u001f\u007f]/;
 
 const VALID_MODES = new Set(["off", "stamp", "enforce"]);
 
@@ -64,6 +70,17 @@ function pickHeader(headers, name) {
   if (Array.isArray(v)) return v[0]?.trim() || undefined;
   if (typeof v === "string") return v.trim() || undefined;
   return undefined;
+}
+
+// Returns sanitized conversation id (or undefined) plus a reason on rejection.
+// Never throws. Never mutates the inbound header dict.
+function sanitizeConversationId(raw) {
+  if (raw === undefined || raw === null) return { value: undefined };
+  if (typeof raw !== "string") return { value: undefined, reason: "non-string" };
+  if (raw.length === 0) return { value: undefined };
+  if (raw.length > CONV_ID_MAX_LEN) return { value: undefined, reason: "length>" + CONV_ID_MAX_LEN };
+  if (CONV_ID_CTRL_RE.test(raw)) return { value: undefined, reason: "control-byte" };
+  return { value: raw };
 }
 
 function generateRequestId() {
@@ -109,6 +126,17 @@ export function evaluateIdentity({ reqHeaders, reqPath, config }) {
   const requestId = generateRequestId();
   const { mode, allowedDomains, enforcedPaths } = config;
 
+  // Conversation-id (relay 2026-05-19) is read in EVERY mode, including off,
+  // because mcp-relay / personal-relay need it on the outbound MCP request
+  // regardless of identity-stamping posture. Treated as opaque string with a
+  // length+control-byte sanity guard. Forwarded verbatim via the header
+  // passthrough in proxy-core (forwardRequestHeaders); when stamping a
+  // claim, also included in the claim JSON for observability.
+  const convIdRaw = pickHeader(reqHeaders, HDR_CONV_ID);
+  const convIdSanitized = sanitizeConversationId(convIdRaw);
+  const conversationId = convIdSanitized.value;
+  const convIdAuditReason = convIdSanitized.reason;
+
   // --- Mode: off -----------------------------------------------------------
   // Pass-through. Don't read identity headers, don't normalize, don't strip.
   // Phase 1 default.
@@ -118,6 +146,8 @@ export function evaluateIdentity({ reqHeaders, reqPath, config }) {
       mutatedHeaders: reqHeaders,
       audit: {
         requestId,
+        conversationId,
+        conversationIdReason: convIdAuditReason,
         mode,
         claimPresent: false,
       },
@@ -219,6 +249,7 @@ export function evaluateIdentity({ reqHeaders, reqPath, config }) {
     display: display || email.split("@")[0],
     issued_at: Date.now(),
   };
+  if (conversationId) claim.conversation_id = conversationId;
   const claimB64 = Buffer.from(JSON.stringify(claim), "utf8").toString("base64");
 
   // Mutate headers: strip the raw three, add the normalized claim + request id.
@@ -236,7 +267,15 @@ export function evaluateIdentity({ reqHeaders, reqPath, config }) {
   return {
     action: "stamp",
     mutatedHeaders: out,
-    audit: { requestId, mode, claimPresent: true, userId, email },
+    audit: {
+      requestId,
+      mode,
+      claimPresent: true,
+      userId,
+      email,
+      conversationId,
+      conversationIdReason: convIdAuditReason,
+    },
   };
 }
 

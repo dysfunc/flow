@@ -18,3 +18,5 @@ openclaw_patches_sudoers_path: /etc/sudoers.d/openclaw-patches
 # Each file must live under roles/openclaw-patches/files/.
 openclaw_patches_list:
   - openai-http-sender-block.patch.js
+  - openai-http-conversation-id-ingress.patch.js
+  - pi-bundle-mcp-runtime-conversation-id-egress.patch.js

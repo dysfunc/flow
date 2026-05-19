@@ -11,3 +11,9 @@
 
 # openai-http-sender-block.patch.js marker
 openclaw-patch:sender-block-v1
+
+# openai-http-conversation-id-ingress.patch.js marker
+openclaw-patch:conversation-id-ingress-v1
+
+# pi-bundle-mcp-runtime-conversation-id-egress.patch.js marker
+openclaw-patch:conversation-id-mcp-egress-v1
