@@ -12,8 +12,14 @@
 # openai-http-sender-block.patch.js marker
 openclaw-patch:sender-block-v1
 
+# openai-http-sender-block-header-fallback.patch.js marker
+openclaw-patch:sender-block-header-fallback-v1
+
 # openai-http-conversation-id-ingress.patch.js marker
 openclaw-patch:conversation-id-ingress-v1
+
+# bash-tools-exec-runtime-conversation-id-env.patch.js marker
+openclaw-patch:exec-runtime-conv-id-env-v1
 
 # pi-bundle-mcp-runtime-conversation-id-egress.patch.js marker
 openclaw-patch:conversation-id-mcp-egress-v1

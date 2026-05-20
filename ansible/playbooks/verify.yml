@@ -51,12 +51,18 @@
       changed_when: false
       failed_when: conv_id_ingress_patch_check.rc != 0
 
-    - name: Check conversation-id MCP egress patch is present in OpenClaw dist (patch 2026-05-19)
+    - name: Check exec-runtime conv-id env patch is present in OpenClaw dist (patch 2026-05-19)
+      # Load-bearing for relay calls: relay is consumed via `exec curl`, not
+      # native MCP transport. This patch injects OPENCLAW_CONVERSATION_ID into
+      # every exec'd child's env so Flow's exec curl payload can include it
+      # in acting_user.conversation_id. The earlier MCP-egress patch was
+      # removed because no native MCP transport handles the relay URL on
+      # this instance (see patches/2026-05-19-conversation-id-mcp-egress-superseded.md).
       ansible.builtin.command:
-        cmd: grep -rqF -- 'openclaw-patch:conversation-id-mcp-egress-v1' {{ openclaw_dist_dir | default('/usr/lib/node_modules/openclaw/dist') }}/
-      register: conv_id_egress_patch_check
+        cmd: grep -rqF -- 'openclaw-patch:exec-runtime-conv-id-env-v1' {{ openclaw_dist_dir | default('/usr/lib/node_modules/openclaw/dist') }}/
+      register: exec_runtime_conv_id_check
       changed_when: false
-      failed_when: conv_id_egress_patch_check.rc != 0
+      failed_when: exec_runtime_conv_id_check.rc != 0
 
     - name: Check anthropic provider timeoutSeconds is 600 (patch 2026-05-15)
       ansible.builtin.command:
@@ -92,7 +98,7 @@
           ✓ openclaw-sse-proxy.service     masked   (fallback, not running)
           ✓ sender-block patch             present in dist (patch 2026-05-16)
           ✓ conv-id ingress patch          present in dist (patch 2026-05-19)
-          ✓ conv-id MCP egress patch       present in dist (patch 2026-05-19)
+          ✓ exec-runtime conv-id env patch present in dist (patch 2026-05-19)
           ✓ anthropic timeoutSeconds       = 600 (patch 2026-05-15)
           ✓ gateway :{{ openclaw_gateway_port }}                  responding
           ✓ gateway-proxy :{{ sse_proxy_listen_port }}            responding

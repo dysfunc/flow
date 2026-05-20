@@ -1,14 +1,30 @@
 #!/usr/bin/env node
 /**
- * pi-bundle-mcp-runtime-conversation-id-egress.patch.js
+ * pi-bundle-mcp-runtime-conversation-id-egress.patch.js  (v2)
  *
  * Injects x-openclaw-conversation-id onto outbound MCP HTTP requests
- * (StreamableHTTPClientTransport + SSEClientTransport) when a conversation
- * id is available in the current AsyncLocalStorage scope set by the
- * ingress patch.
+ * (StreamableHTTPClientTransport + SSEClientTransport) at REQUEST time,
+ * reading the current value from the global AsyncLocalStorage the ingress
+ * patch sets.
+ *
+ * v1 was wrong: it mutated `requestInit.headers` at transport-construction
+ * time. But MCP transports are cached by getCatalog() the first time the
+ * catalog is fetched, so `requestInit` is frozen with whatever conv-id was
+ * active at catalog-init (typically: none, because catalog loads happen
+ * eagerly during agent boot, before any per-turn ALS scope exists). All
+ * subsequent callTool() / _list_tools() calls reuse the stale transport,
+ * baking in an empty conv-id for the lifetime of the process.
+ *
+ * v2 fixes this by wrapping the `fetch` function passed to each transport.
+ * The wrapper reads ALS on every call, mutates the per-call `init.headers`,
+ * and forwards. Result: even though the transport is cached, the fetch
+ * function attached to it reads the live conv-id on every HTTP request,
+ * including tools/call after catalog initialization.
  *
  * Target: /usr/lib/node_modules/openclaw/dist/pi-bundle-mcp-runtime-*.js
  * Marker: openclaw-patch:conversation-id-mcp-egress-v1
+ *   (Marker name unchanged so verify.yml + expected-signatures keep working;
+ *    v2 supersedes v1 in semantics only.)
  *
  * Companion patches:
  *   - openai-http-conversation-id-ingress.patch.js  (the producer)
@@ -16,15 +32,16 @@
  * Behavior:
  *   - Resolves the same global symbol-keyed AsyncLocalStorage the ingress
  *     patch uses (Symbol.for("openclaw.patch.conversationIdAls")).
- *   - In resolveMcpTransport(), just before constructing the transport,
- *     reads the active scope and, if conversationId is present, clones
- *     resolved.headers and adds x-openclaw-conversation-id.
- *   - Falls through to stock behavior on:
- *       - No active scope (no conv-id sent, no scope installed)
- *       - Missing/empty conversationId (the ingress patch already sanitized)
- *       - Any thrown error reading the store (defensive)
- *   - Does NOT mutate resolved.headers in place — the original dict may
- *     be reused across server-config refreshes.
+ *   - Builds a fetch wrapper that, on every call:
+ *       1) reads conversationId from ALS
+ *       2) if present, clones init.headers (preserves all existing) and
+ *          adds x-openclaw-conversation-id
+ *       3) delegates to fetchWithUndici (or global fetch as fallback)
+ *   - Both StreamableHTTPClientTransport (streamable-http) and
+ *     SSEClientTransport (sse) now receive this wrapped fetch via
+ *     opts.fetch. SSE's eventSourceInit.fetch is also wrapped.
+ *   - Original baked-in transport headers (`resolved.headers`) are left
+ *     intact; we only ADD conv-id at call time when ALS has one.
  *   - Idempotent: detects marker and skips re-apply.
  *
  * Revert: npm install -g openclaw   (restores stock dist/)
@@ -38,7 +55,7 @@ const path = require('path');
 const MARKER = 'openclaw-patch:conversation-id-mcp-egress-v1';
 
 const HELPER = [
-  '/* ' + MARKER + ' */',
+  '/* ' + MARKER + ' (v2 — per-call fetch wrapper, transport-cache-safe) */',
   'const __openclawConvIdAls_SYM = Symbol.for("openclaw.patch.conversationIdAls");',
   'function __openclawCurrentConvId() {',
   '\ttry {',
@@ -50,11 +67,34 @@ const HELPER = [
   '\t\treturn typeof v === "string" && v.length > 0 && v.length <= 128 ? v : undefined;',
   '\t} catch (_e) { return undefined; }',
   '}',
-  'function __openclawWithConvIdHeader(headers) {',
-  '\tconst convId = __openclawCurrentConvId();',
-  '\tif (!convId) return headers || undefined;',
-  '\tconst base = headers && typeof headers === "object" ? headers : {};',
-  '\treturn Object.assign({}, base, { "x-openclaw-conversation-id": convId });',
+  '// Wraps a fetch-like function so x-openclaw-conversation-id is added',
+  '// to every outbound request from the current ALS scope at call time.',
+  '// init.headers can be a Headers, plain object, or array of pairs; the',
+  '// wrapper normalizes to a plain object for the merged copy.',
+  'function __openclawWrapMcpFetch(innerFetch) {',
+  '\tconst fn = (typeof innerFetch === "function") ? innerFetch : ((u, i) => fetch(u, i));',
+  '\treturn async function __openclawConvIdFetch(input, init) {',
+  '\t\tconst convId = __openclawCurrentConvId();',
+  '\t\tif (!convId) return fn(input, init);',
+  '\t\tconst nextInit = init && typeof init === "object" ? { ...init } : {};',
+  '\t\tlet merged;',
+  '\t\tconst h = nextInit.headers;',
+  '\t\tif (h && typeof h.set === "function" && typeof h.get === "function") {',
+  '\t\t\t// Headers / Headers-like — clone via constructor so we don\'t',
+  '\t\t\t// mutate the caller\'s object.',
+  '\t\t\tmerged = new (h.constructor)(h);',
+  '\t\t\ttry { merged.set("x-openclaw-conversation-id", convId); } catch (_e) {}',
+  '\t\t} else if (Array.isArray(h)) {',
+  '\t\t\tmerged = h.filter((p) => Array.isArray(p) && String(p[0]).toLowerCase() !== "x-openclaw-conversation-id");',
+  '\t\t\tmerged.push(["x-openclaw-conversation-id", convId]);',
+  '\t\t} else if (h && typeof h === "object") {',
+  '\t\t\tmerged = { ...h, "x-openclaw-conversation-id": convId };',
+  '\t\t} else {',
+  '\t\t\tmerged = { "x-openclaw-conversation-id": convId };',
+  '\t\t}',
+  '\t\tnextInit.headers = merged;',
+  '\t\treturn fn(input, nextInit);',
+  '\t};',
   '}',
   ''
 ].join('\n');
@@ -80,66 +120,88 @@ function ok(status, extra) {
     fail('cannot read distDir ' + distDir + ': ' + e.message);
   }
 
-  const src = fs.readFileSync(target, 'utf8');
+  let src = fs.readFileSync(target, 'utf8');
 
-  if (src.indexOf(MARKER) !== -1) {
-    ok('already-applied', { file: target });
-  }
-
-  // Anchor 1: streamable-http transport construction.
-  const STREAMABLE_ANCHOR =
+  // v1 anchor strings (we may have applied v1 earlier in this same dist).
+  // To upgrade in place, we first revert v1's two replacements back to the
+  // stock anchors, then apply v2. v2 is detected by the additional helper
+  // function name __openclawWrapMcpFetch.
+  const STOCK_STREAMABLE =
     'transport: new StreamableHTTPClientTransport(new URL(resolved.url), { requestInit: resolved.headers ? { headers: resolved.headers } : void 0 }),';
-  const STREAMABLE_REPLACEMENT =
+  const V1_STREAMABLE =
     'transport: new StreamableHTTPClientTransport(new URL(resolved.url), (() => { const __h = __openclawWithConvIdHeader(resolved.headers); return { requestInit: __h ? { headers: __h } : void 0 }; })()),';
 
-  // Anchor 2: SSE transport headers are pre-built in a local `headers` const
-  // a few lines above the transport call. We need to inject conv-id into
-  // that local. The original block:
-  //
-  //   const headers = { ...resolved.headers };
-  //   const hasHeaders = Object.keys(headers).length > 0;
-  //   return {
-  //     transport: new SSEClientTransport(new URL(resolved.url), {
-  //       requestInit: hasHeaders ? { headers } : void 0,
-  //       fetch: fetchWithUndici,
-  //       eventSourceInit: { fetch: buildSseEventSourceFetch(headers) }
-  //     }),
-  //
-  // Patch only the first line (introduces conv-id into the dict).
-  const SSE_ANCHOR = 'const headers = { ...resolved.headers };';
-  const SSE_REPLACEMENT =
+  const STOCK_SSE_HEADERS_LINE = 'const headers = { ...resolved.headers };';
+  const V1_SSE_HEADERS_LINE =
     'const headers = (() => { const __h = __openclawWithConvIdHeader(resolved.headers); return __h ? { ...__h } : {}; })();';
 
-  if (src.indexOf(STREAMABLE_ANCHOR) === -1) {
-    fail('streamable-http anchor not found in ' + target);
-  }
-  if (src.indexOf(SSE_ANCHOR) === -1) {
-    fail('sse anchor not found in ' + target);
+  // Detect v2 (idempotency): v2 introduces the wrapper helper.
+  if (src.indexOf('__openclawWrapMcpFetch') !== -1) {
+    ok('already-applied', { file: target, version: 'v2' });
   }
 
-  // Find an insertion point for the helper. Insert just before the first
-  // use site (the streamable anchor) for locality. Use a stable anchor
-  // string that lives above both uses: "function resolveMcpTransport(".
+  // If v1 markers are present, roll them back before applying v2 so the
+  // anchors needed for v2 are the stock ones.
+  if (src.indexOf(V1_STREAMABLE) !== -1) {
+    src = src.replace(V1_STREAMABLE, STOCK_STREAMABLE);
+  }
+  if (src.indexOf(V1_SSE_HEADERS_LINE) !== -1) {
+    src = src.replace(V1_SSE_HEADERS_LINE, STOCK_SSE_HEADERS_LINE);
+  }
+  // Strip any leftover v1 helper block (the lines defining __openclawCurrentConvId
+  // and __openclawWithConvIdHeader). We replace the whole region from the
+  // v1 marker comment up to the function resolveMcpTransport anchor.
+  const V1_MARKER_LINE = '/* ' + MARKER + ' */';
+  const V1_HELPER_HEAD = src.indexOf(V1_MARKER_LINE);
+  if (V1_HELPER_HEAD !== -1) {
+    const fnAnchor = src.indexOf('function resolveMcpTransport(', V1_HELPER_HEAD);
+    if (fnAnchor === -1) fail('found v1 helper but no resolveMcpTransport anchor to bound it');
+    src = src.slice(0, V1_HELPER_HEAD) + src.slice(fnAnchor);
+  }
+
+  // From this point, `src` is at the v1-rolled-back / stock state. Apply v2.
+  if (src.indexOf(STOCK_STREAMABLE) === -1) {
+    fail('stock streamable-http anchor not found after v1 rollback');
+  }
+  if (src.indexOf(STOCK_SSE_HEADERS_LINE) === -1) {
+    fail('stock sse headers anchor not found after v1 rollback');
+  }
+
+  // Insert helper above the function.
   const HELPER_ANCHOR = 'function resolveMcpTransport(';
-  if (src.indexOf(HELPER_ANCHOR) === -1) {
-    fail('helper anchor (resolveMcpTransport function) not found in ' + target);
-  }
+  if (src.indexOf(HELPER_ANCHOR) === -1) fail('helper anchor (resolveMcpTransport) not found');
+  src = src.replace(HELPER_ANCHOR, HELPER + HELPER_ANCHOR);
 
-  // Apply: helper above the function, then two anchor replacements.
-  let next = src.replace(HELPER_ANCHOR, HELPER + HELPER_ANCHOR);
-  if (next === src) fail('helper insertion failed');
+  // Streamable: wrap opts.fetch. The stock construction provides no fetch
+  // at all (defaults to global fetch); we add it so we can intercept.
+  const STREAMABLE_REPLACEMENT =
+    'transport: new StreamableHTTPClientTransport(new URL(resolved.url), { requestInit: resolved.headers ? { headers: resolved.headers } : void 0, fetch: __openclawWrapMcpFetch(undefined) }),';
+  src = src.replace(STOCK_STREAMABLE, STREAMABLE_REPLACEMENT);
+  if (src.indexOf(STREAMABLE_REPLACEMENT) === -1) fail('streamable replacement failed to land');
 
-  next = next.replace(STREAMABLE_ANCHOR, STREAMABLE_REPLACEMENT);
-  if (next.indexOf(STREAMABLE_REPLACEMENT) === -1) fail('streamable replacement failed');
+  // SSE: wrap fetchWithUndici (and the eventSourceInit fetch).
+  // The stock construction is:
+  //   transport: new SSEClientTransport(new URL(resolved.url), {
+  //     requestInit: hasHeaders ? { headers } : void 0,
+  //     fetch: fetchWithUndici,
+  //     eventSourceInit: { fetch: buildSseEventSourceFetch(headers) }
+  //   }),
+  const STOCK_SSE_FETCH = 'fetch: fetchWithUndici,';
+  const SSE_FETCH_REPLACEMENT = 'fetch: __openclawWrapMcpFetch(fetchWithUndici),';
+  if (src.indexOf(STOCK_SSE_FETCH) === -1) fail('stock sse fetch anchor not found');
+  src = src.replace(STOCK_SSE_FETCH, SSE_FETCH_REPLACEMENT);
 
-  next = next.replace(SSE_ANCHOR, SSE_REPLACEMENT);
-  if (next.indexOf(SSE_REPLACEMENT) === -1) fail('sse replacement failed');
+  const STOCK_SSE_ES_FETCH = 'eventSourceInit: { fetch: buildSseEventSourceFetch(headers) }';
+  const SSE_ES_FETCH_REPLACEMENT = 'eventSourceInit: { fetch: __openclawWrapMcpFetch(buildSseEventSourceFetch(headers)) }';
+  if (src.indexOf(STOCK_SSE_ES_FETCH) === -1) fail('stock sse eventSourceInit fetch anchor not found');
+  src = src.replace(STOCK_SSE_ES_FETCH, SSE_ES_FETCH_REPLACEMENT);
 
-  if (next.indexOf(MARKER) === -1) fail('post-patch marker missing');
+  if (src.indexOf(MARKER) === -1) fail('post-patch marker missing');
+  if (src.indexOf('__openclawWrapMcpFetch') === -1) fail('post-patch wrapper helper missing');
 
   const tmp = target + '.patch-tmp';
-  fs.writeFileSync(tmp, next, 'utf8');
+  fs.writeFileSync(tmp, src, 'utf8');
   fs.renameSync(tmp, target);
 
-  ok('applied', { file: target, marker: MARKER });
+  ok('applied', { file: target, marker: MARKER, version: 'v2' });
 })();

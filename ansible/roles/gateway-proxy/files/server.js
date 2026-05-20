@@ -65,6 +65,8 @@ function logAudit(prefix, audit) {
   ];
   if (audit.userId) parts.push(`uid=${audit.userId}`);
   if (audit.email)  parts.push(`email=${audit.email}`);
+  if (audit.conversationId) parts.push(`conv_id=${audit.conversationId} conv_src=${audit.conversationIdSource || "?"}`);
+  else parts.push(`conv_id=<none> conv_reason=${audit.conversationIdReason || "?"}`);
   if (audit.reason) parts.push(`reason="${audit.reason}"`);
   log(`${prefix} ${parts.join(" ")}`);
 }
