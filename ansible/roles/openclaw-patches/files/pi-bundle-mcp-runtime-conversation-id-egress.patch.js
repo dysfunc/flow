@@ -126,8 +126,21 @@ function ok(status, extra) {
   // To upgrade in place, we first revert v1's two replacements back to the
   // stock anchors, then apply v2. v2 is detected by the additional helper
   // function name __openclawWrapMcpFetch.
-  const STOCK_STREAMABLE =
+  //
+  // The streamable-http construction shape changed between OpenClaw
+  // 2026.5.5 and 2026.5.19:
+  //   - <=2026.5.5: single-line, no `fetch:` field
+  //   - >=2026.5.19: multi-line, default fetch =
+  //     fetchStreamableHttpWithRedirectScrub (security-sensitive redirect
+  //     scrubbing). The patch must COMPOSE with that, not replace it.
+  //
+  // We detect which shape is present at apply time and use matching
+  // anchor + replacement. v3 marker comment in the replacement is what
+  // expected-signatures.txt grep'es for, so it stays unchanged.
+  const STOCK_STREAMABLE_LEGACY =
     'transport: new StreamableHTTPClientTransport(new URL(resolved.url), { requestInit: resolved.headers ? { headers: resolved.headers } : void 0 }),';
+  const STOCK_STREAMABLE_MODERN =
+    'transport: new StreamableHTTPClientTransport(new URL(resolved.url), {\n\t\t\trequestInit: resolved.headers ? { headers: resolved.headers } : void 0,\n\t\t\tfetch: fetchStreamableHttpWithRedirectScrub\n\t\t}),';
   const V1_STREAMABLE =
     'transport: new StreamableHTTPClientTransport(new URL(resolved.url), (() => { const __h = __openclawWithConvIdHeader(resolved.headers); return { requestInit: __h ? { headers: __h } : void 0 }; })()),';
 
@@ -141,9 +154,11 @@ function ok(status, extra) {
   }
 
   // If v1 markers are present, roll them back before applying v2 so the
-  // anchors needed for v2 are the stock ones.
+  // anchors needed for v2 are the stock ones. (v1 only ever ran against
+  // the legacy single-line shape, so the rollback target is the legacy
+  // STOCK_STREAMABLE regardless of which dist version we're patching.)
   if (src.indexOf(V1_STREAMABLE) !== -1) {
-    src = src.replace(V1_STREAMABLE, STOCK_STREAMABLE);
+    src = src.replace(V1_STREAMABLE, STOCK_STREAMABLE_LEGACY);
   }
   if (src.indexOf(V1_SSE_HEADERS_LINE) !== -1) {
     src = src.replace(V1_SSE_HEADERS_LINE, STOCK_SSE_HEADERS_LINE);
@@ -160,8 +175,14 @@ function ok(status, extra) {
   }
 
   // From this point, `src` is at the v1-rolled-back / stock state. Apply v2.
-  if (src.indexOf(STOCK_STREAMABLE) === -1) {
-    fail('stock streamable-http anchor not found after v1 rollback');
+  // Detect which streamable shape is present in this dist version.
+  let streamableMode;
+  if (src.indexOf(STOCK_STREAMABLE_LEGACY) !== -1) {
+    streamableMode = 'legacy';
+  } else if (src.indexOf(STOCK_STREAMABLE_MODERN) !== -1) {
+    streamableMode = 'modern';
+  } else {
+    fail('stock streamable-http anchor not found (neither legacy nor modern shape) — upstream rewrote the transport construction site; patch needs rewrite');
   }
   if (src.indexOf(STOCK_SSE_HEADERS_LINE) === -1) {
     fail('stock sse headers anchor not found after v1 rollback');
@@ -172,12 +193,22 @@ function ok(status, extra) {
   if (src.indexOf(HELPER_ANCHOR) === -1) fail('helper anchor (resolveMcpTransport) not found');
   src = src.replace(HELPER_ANCHOR, HELPER + HELPER_ANCHOR);
 
-  // Streamable: wrap opts.fetch. The stock construction provides no fetch
-  // at all (defaults to global fetch); we add it so we can intercept.
-  const STREAMABLE_REPLACEMENT =
-    'transport: new StreamableHTTPClientTransport(new URL(resolved.url), { requestInit: resolved.headers ? { headers: resolved.headers } : void 0, fetch: __openclawWrapMcpFetch(undefined) }),';
-  src = src.replace(STOCK_STREAMABLE, STREAMABLE_REPLACEMENT);
-  if (src.indexOf(STREAMABLE_REPLACEMENT) === -1) fail('streamable replacement failed to land');
+  // Streamable: wrap opts.fetch.
+  //   - legacy (<=2026.5.5): no fetch field, so we add one passing undefined
+  //     (wrapper falls back to global fetch)
+  //   - modern (>=2026.5.19): wrap fetchStreamableHttpWithRedirectScrub so
+  //     the redirect-scrubbing behavior is preserved
+  let STREAMABLE_REPLACEMENT;
+  if (streamableMode === 'legacy') {
+    STREAMABLE_REPLACEMENT =
+      'transport: new StreamableHTTPClientTransport(new URL(resolved.url), { requestInit: resolved.headers ? { headers: resolved.headers } : void 0, fetch: __openclawWrapMcpFetch(undefined) }),';
+    src = src.replace(STOCK_STREAMABLE_LEGACY, STREAMABLE_REPLACEMENT);
+  } else {
+    STREAMABLE_REPLACEMENT =
+      'transport: new StreamableHTTPClientTransport(new URL(resolved.url), {\n\t\t\trequestInit: resolved.headers ? { headers: resolved.headers } : void 0,\n\t\t\tfetch: __openclawWrapMcpFetch(fetchStreamableHttpWithRedirectScrub)\n\t\t}),';
+    src = src.replace(STOCK_STREAMABLE_MODERN, STREAMABLE_REPLACEMENT);
+  }
+  if (src.indexOf(STREAMABLE_REPLACEMENT) === -1) fail('streamable replacement failed to land (mode=' + streamableMode + ')');
 
   // SSE: wrap fetchWithUndici (and the eventSourceInit fetch).
   // The stock construction is:
