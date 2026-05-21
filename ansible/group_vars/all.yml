@@ -17,7 +17,7 @@ openclaw_npm_package: openclaw
 # Pinned to the version currently running on the VPS. Bump explicitly after
 # verifying a new release is good. The update-openclaw playbook accepts an
 # override: `make update-openclaw OPENCLAW_VERSION=2026.6.0`.
-openclaw_pin_version: "2026.5.5"
+openclaw_pin_version: "2026.5.19"
 openclaw_gateway_port: 8443
 openclaw_env_file: /etc/openclaw.env  # owner=root, mode=0640; contains secrets
 
