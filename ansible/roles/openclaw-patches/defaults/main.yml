@@ -21,8 +21,4 @@ openclaw_patches_list:
   - openai-http-sender-block-header-fallback.patch.js
   - openai-http-conversation-id-ingress.patch.js
   - bash-tools-exec-runtime-conversation-id-env.patch.js
-  # NOTE: pi-bundle-mcp-runtime-conversation-id-egress.patch.js was
-  # removed 2026-05-19. It patched the wrong code path: this OpenClaw
-  # instance has no native MCP servers configured for the relay; relay
-  # calls go via `exec curl`, which the wrapper never sees. See
-  # patches/2026-05-19-conversation-id-mcp-egress-superseded.md.
+  - pi-bundle-mcp-runtime-conversation-id-egress.patch.js

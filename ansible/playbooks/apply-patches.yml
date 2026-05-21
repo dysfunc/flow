@@ -1,0 +1,15 @@
+---
+# Patches-only run: sync patch source files from the ops repo into the
+# root-owned patches dir and (re)apply them against the OpenClaw dist.
+# Does NOT touch npm packages or restart the gateway unless the role's
+# handler fires (apply.sh reports applied>0).
+#
+# Use this when you've changed the openclaw-patches role files but do
+# not want a full openclaw npm upgrade (see update-openclaw.yml for that).
+
+- name: Apply OpenClaw dist patches only
+  hosts: vps
+  gather_facts: false
+
+  roles:
+    - openclaw-patches
